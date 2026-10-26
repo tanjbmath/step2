@@ -3,14 +3,13 @@
     // 1. FIREBASE CONFIGURATION & INITIALIZATION
     // ==========================================
     const firebaseConfig = {
-      apiKey: String.fromCharCode(65,73,122,97,83,121,65,66,103,112,113,79,54,76,95,67,116,109,52,72,88,85,97,106,81,112,84,83,81,55,119,74,86,73,115,114,97,80,48),
-      authDomain: "classwork1314.firebaseapp.com",
-      databaseURL: "https://classwork1314-default-rtdb.asia-southeast1.firebasedatabase.app",
-      projectId: "classwork1314",
-      storageBucket: "classwork1314.firebasestorage.app",
-      messagingSenderId: "1073751121093",
-      appId: "1:1073751121093:web:3cd277765b0cd61cea24ac",
-      measurementId: "G-P61WJLX7WF"
+      apiKey: String.fromCharCode(65,73,122,97,83,121,67,45,103,74,74,80,101,121,103,106,48,100,83,116,110,71,86,73,87,68,104,48,95,116,95,116,113,54,108,108,53,102,85),
+      authDomain: "step2-tanjb.firebaseapp.com",
+      projectId: "step2-tanjb",
+      storageBucket: "step2-tanjb.firebasestorage.app",
+      messagingSenderId: "665109378166",
+      appId: "1:665109378166:web:153782aba892e736b05b57",
+      measurementId: "G-J21PYF51EE"
     };
 
     let db = null;
