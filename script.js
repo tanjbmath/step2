@@ -788,7 +788,6 @@
       document.getElementById('currentAssignmentDesc').textContent = currentAssignmentData.description || 'No instructions provided.';
       document.getElementById('currentSessionCode').textContent = currentAssignmentData.sessionCode || '------';
       updateAssignmentStudentLink();
-      startTeacherHelpMonitor(assignmentId);
 
       if (!db) {
         currentJoinedStudents = [];
@@ -1039,7 +1038,9 @@ async function loadAssignmentProgressCounts(assignment) {
             list.innerHTML = '<p class="text-sm text-slate-400">No assignments yet. Create one to get started.</p>';
             return;
           }
-          scheduleTeacherStudentStatsRefresh();
+          // Avoid scanning every assignment roster while the overview is collapsed.
+          const statsPanel = document.getElementById('teacherStudentStatsPanel');
+          if (statsPanel && !statsPanel.classList.contains('hidden')) scheduleTeacherStudentStatsRefresh();
         docs.forEach(item => {
             const card = document.createElement('button');
             card.type = 'button';
@@ -1140,6 +1141,7 @@ async function loadAssignmentProgressCounts(assignment) {
             <h5 class="font-bold text-slate-800 break-words">${escapeHtml(displayName)}</h5>
             <p class="text-xs text-slate-500 break-all">${escapeHtml(student.studentEmail || student.email || '')}</p>
             <span class="inline-block mt-1 text-xs rounded-full px-2 py-1" style="${statusBadgeStyle}">${labels[String(student.status || '').trim().toLowerCase()] || 'In Progress'}</span>
+            ${student.helpRequested ? `<span class="inline-flex items-center gap-1 mt-2 text-xs font-bold text-rose-700 bg-rose-100 border border-rose-200 rounded-full px-2.5 py-1"><i class="fa-solid fa-hand"></i> Hand raised${student.helpQuestion ? ': ' + escapeHtml(student.helpQuestion) : ''}</span>` : ''}
           </div><span class="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded font-semibold whitespace-nowrap">${currentAssignmentData?.slides?.length || 1} Slides</span></div>
           <div class="h-32 bg-white border border-slate-200 rounded flex items-center justify-center overflow-hidden relative">
             ${student.isJoined ? `<img id="thumb-${student.id}" class="w-full h-full object-contain" src="" alt="Live Preview">` : '<span class="text-xs text-slate-400">Not joined yet</span>'}
@@ -1238,7 +1240,14 @@ async function loadAssignmentProgressCounts(assignment) {
     }
 
     function openWorkspaceForInspection(stId, stName, status = 'submitted', studentRecord = null) {
+      // Dashboard previews are unnecessary while the teacher is inspecting one student's work.
+      stopStudentPreviewListeners();
       inspectingStudentId = stId;
+      if (studentRecord?.helpRequested && currentAssignmentId && db) {
+        db.collection('assignments').doc(currentAssignmentId).collection('students').doc(stId)
+          .set({ helpRequested: false, helpQuestion: '', helpRequestedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+          .catch(err => console.warn('Could not clear raised-hand indicator:', err));
+      }
       currentSubmissionStatus = status || 'submitted';
       window.currentInspectedStudentRecord = studentRecord || { studentUid: stId, id: stId, status: currentSubmissionStatus };
       teacherDashboard.classList.add('hidden');
@@ -1530,8 +1539,8 @@ async function loadAssignmentProgressCounts(assignment) {
       button.classList.toggle('hidden', !isStudent || currentSubmissionStatus !== 'in-progress' || requesterHelpLock || Boolean(activeHelpRequestId));
       button.disabled = false;
       button.textContent = 'Submit assignment';
-      const ask = document.getElementById('askForHelpBtn');
-      if (ask) ask.classList.toggle('hidden', !isStudent || currentSubmissionStatus !== 'in-progress' || requesterHelpLock || hasOpenOwnedHelpRequest || Boolean(activeHelpRequestId));
+      const raiseHand = document.getElementById('raiseHandBtn');
+      if (raiseHand) raiseHand.classList.toggle('hidden', !isStudent || currentSubmissionStatus === 'completed');
     }
 
     document.getElementById('teacherMarkCompletedBtn').addEventListener('click', async () => {
@@ -1646,6 +1655,7 @@ async function loadAssignmentProgressCounts(assignment) {
       } else {
         teacherDashboard.classList.remove('hidden');
       }
+      if (currentUserRole === 'teacher' && currentAssignmentId) renderTeacherRoster();
     });
 
     // ==========================================
@@ -1658,9 +1668,7 @@ async function loadAssignmentProgressCounts(assignment) {
       updateHistoryButtons();
       updateSlideNavigationUI();
       resizeCanvas();
-      updatePeerHelpControls();
       loadCurrentSlideData();
-      startPeerHelpListeners();
     }
 
     function updateSlideNavigationUI() {
@@ -2579,7 +2587,7 @@ async function loadAssignmentProgressCounts(assignment) {
 
       const requestsRef = db.collection('assignments').doc(currentAssignmentId).collection('helpRequests');
       if (currentUserRole === 'teacher') {
-        startTeacherHelpMonitor(currentAssignmentId);
+
       } else if (currentSubmissionStatus === 'completed') {
         // Fetch on opening/refresh instead of keeping an assignment-wide listener open.
         requestsRef.where('status', '==', 'pending').limit(10).get().then(snapshot => {
@@ -2740,7 +2748,7 @@ async function loadAssignmentProgressCounts(assignment) {
         document.getElementById('askForHelpModal').classList.add('hidden');
         document.getElementById('askForHelpForm').reset();
         showToast('Peer Help request sent. Your identity is hidden from other students.', 'success');
-        startPeerHelpListeners();
+
       } catch (err) {
         console.error('Could not create Peer Help request:', err);
         showToast('Could not send help request: ' + err.message, 'error');
@@ -3039,20 +3047,36 @@ async function loadAssignmentProgressCounts(assignment) {
         });
     }
 
-    document.getElementById('askForHelpBtn').addEventListener('click', () => {
-      document.getElementById('askForHelpModal').classList.remove('hidden');
-      document.getElementById('peerHelpQuestionInput').focus();
+
+
+
+
+
+
+
+
+
+    document.getElementById('raiseHandBtn').addEventListener('click', async () => {
+      if (!signedInUser || !db || !currentAssignmentId || currentUserRole !== 'student') return;
+      const question = window.prompt('Optional: what do you need help with?', '');
+      if (question === null) return;
+      const button = document.getElementById('raiseHandBtn');
+      button.disabled = true;
+      try {
+        await db.collection('assignments').doc(currentAssignmentId).collection('students').doc(signedInUser.uid).set({
+          helpRequested: true,
+          helpQuestion: question.trim().slice(0, 500),
+          helpRequestedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        showToast('Hand raised. Your teacher can now open your work.', 'success');
+        button.innerHTML = '<i class="fa-solid fa-hand mr-1"></i> Hand Raised';
+      } catch (err) {
+        console.error('Could not raise hand:', err);
+        showToast('Could not notify your teacher: ' + err.message, 'error');
+      } finally {
+        button.disabled = false;
+      }
     });
-    document.getElementById('closeAskForHelpBtn').addEventListener('click', () => document.getElementById('askForHelpModal').classList.add('hidden'));
-    document.getElementById('cancelAskForHelpBtn').addEventListener('click', () => document.getElementById('askForHelpModal').classList.add('hidden'));
-    document.getElementById('askForHelpForm').addEventListener('submit', event => {
-      event.preventDefault();
-      createPeerHelpRequest(document.getElementById('peerHelpQuestionInput').value);
-    });
-    document.getElementById('submitPeerHelpBtn').addEventListener('click', () => activeHelpRequestId && submitPeerHelp(activeHelpRequestId, false));
-    document.getElementById('teacherSubmitPeerHelpBtn').addEventListener('click', () => activeHelpRequestId && submitPeerHelp(activeHelpRequestId, true));
-    document.getElementById('refreshPeerHelpBtn').addEventListener('click', startPeerHelpListeners);
-    document.getElementById('teacherRefreshPeerHelpBtn').addEventListener('click', () => startTeacherHelpMonitor(currentAssignmentId));
 
     // ==========================================
     // UTILITY & NOTIFICATION FUNCTIONS
